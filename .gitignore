@@ -1,2 +1,11 @@
-bin/
+# Mac
 .DS_Store
+
+# Editors
+.vscode
+
+# Haxe
+.haxelib
+
+# project files
+bin/
