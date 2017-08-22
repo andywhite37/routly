@@ -1,7 +1,6 @@
 package routly;
 
 class RouteDescriptor {
-
   public var raw : String;
   public var virtual : String;
   public var arguments : Map<String, String>;
