@@ -1,88 +1,69 @@
 package routly;
 
-import js.Browser.*;
-import js.html.HashChangeEvent;
+import thx.Error;
 using thx.Strings;
 
-class Routly {
+import routly.IRouteEmitter;
 
-  var mappings : Map<String, RouteDescriptor -> Void>;
-  var unknownPathCallback : RouteDescriptor -> Void;
-  var emitter : IRouteEmitter;
+class Routly implements IRouteHandler {
+  var routeEmitter(default, null) : IRouteEmitter;
+  var routeHandlers(default, null) : Map<String, RouteDescriptor -> Void>;
+  var unknownPathCallback(default, null) : String -> RouteDescriptor -> Void;
 
-  public function new(?emitter : IRouteEmitter) {
-
-    // if no IRouteEmitter is passed in, we default to using
-    // an HtmlRouteEmitter, which simply wraps window.onhashchange
-    if (emitter == null)
-      emitter = new HtmlRouteEmitter();
-
-    // keep track of our emitter
-    this.emitter = emitter;
+  public function new(routeEmitter : IRouteEmitter) {
+    this.routeEmitter = routeEmitter;
+    this.routeHandlers = new Map();
+    this.unknownPathCallback = (message, desc) -> { throw new Error('ERROR: no unknown path callback configured! (message: $message, descriptor: $desc)'); };
   }
 
-  public function routes(mappings : Map<String, RouteDescriptor -> Void>) {
-    if (mappings == null)
-      mappings = new Map<String, RouteDescriptor -> Void>();
-
-    // assign the passed-in map to private var
-    this.mappings = mappings;
+  public function routes(routeHandlers : Map<String, RouteDescriptor -> Void>) : Void {
+    this.routeHandlers = routeHandlers;
   }
 
-  public function unknown(callback : RouteDescriptor -> Void) {
-    unknownPathCallback = callback;
+  public function unknown(callback : String -> RouteDescriptor -> Void) : Void {
+    this.unknownPathCallback = callback;
   }
 
-  public function fire(path : String) {
-
-    // WART
-    if (path == null || path == "")
-      path = "/";
-
-    // if route does not exist,
-    // maybe display a 404 view?
+  public function onRouteChange(path : String) : Void {
     var descriptor = findMatch(path);
+
     if (descriptor == null) {
-      // TODO: call some "unknown/bad path" callback:
-      // callback404(new Descriptor404(path))
-      if (unknownPathCallback != null) unknownPathCallback(new RouteDescriptor(path));
+      unknownPathCallback('no route match found for path: $path', new RouteDescriptor(path));
       return;
     }
 
-    // invoke the callback associated with the descriptor of hte matched route
     var key = descriptor.virtual;
-    mappings.get(key)(descriptor);
+    var routeHandler = routeHandlers.get(key);
+
+    if (routeHandler == null) {
+      unknownPathCallback('no route handler found for path: $path', new RouteDescriptor(path));
+      return;
+    }
+
+    routeHandler(descriptor);
   }
 
-  public function listen(fireEventForCurrentPath = true) {
-    // to listen for changes, subscribe the router to the emitter,
-    // which calls the router's fire method upon route changes
-    emitter.subscribe(this);
-
-    // if we want to fire based on the current route (i.e., on page load),
-    // just tell our emitter to fire whatever the current hash is
-    if (fireEventForCurrentPath)
-      emitter.emit();
+  public function listen(options: { emitInitialRoute : Bool }) {
+    routeEmitter.subscribeRouteChange(this);
+    if (options.emitInitialRoute) {
+      routeEmitter.emitCurrentRoute();
+    }
   }
 
   private function findMatch(path : String) : RouteDescriptor {
-
     // check each registered route for a match against
     // the raw path, return the matching key if one is found
-    for(virtualPath in mappings.keys()) {
-
+    for(virtualPath in routeHandlers.keys()) {
       // SHOULD THE matches METHOD INSTEAD TAKE 2 ARRAYS?
       // THIS WAY WE DON'T SPLIT THE RAW PATH OVER AND OVER
       var descriptor = matches(path, virtualPath);
       if (descriptor != null)
         return descriptor;
     }
-
     return null;
   }
 
-  private function matches (rawPath : String, virtualPath : String) : RouteDescriptor {
-
+  private function matches(rawPath : String, virtualPath : String) : RouteDescriptor {
     // we want to strip everything after the question mark
     var questionMarkIndex = rawPath.lastIndexOf("?");
     var formatted = if (questionMarkIndex > 0) rawPath.substring(0, questionMarkIndex) else rawPath;
